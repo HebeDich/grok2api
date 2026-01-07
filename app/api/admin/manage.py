@@ -620,3 +620,44 @@ async def test_token(request: TestTokenRequest, _: bool = Depends(verify_admin_s
     except Exception as e:
         logger.error(f"[Admin] Token测试异常: {e}")
         raise HTTPException(status_code=500, detail={"error": f"测试失败: {e}", "code": "TEST_TOKEN_ERROR"})
+
+
+@router.post("/api/tokens/refresh-all")
+async def refresh_all_tokens(_: bool = Depends(verify_admin_session)) -> Dict[str, Any]:
+    """一键刷新所有Token的剩余次数（后台执行）"""
+    import asyncio
+    
+    try:
+        # 检查是否已在刷新
+        progress = token_manager.get_refresh_progress()
+        if progress.get("running"):
+            return {
+                "success": False,
+                "message": "刷新任务正在进行中",
+                "data": progress
+            }
+        
+        # 后台启动刷新任务
+        logger.info("[Admin] 启动后台刷新任务")
+        asyncio.create_task(token_manager.refresh_all_limits())
+        
+        # 立即返回，让前端轮询进度
+        return {
+            "success": True,
+            "message": "刷新任务已启动",
+            "data": {"started": True}
+        }
+    except Exception as e:
+        logger.error(f"[Admin] 刷新Token异常: {e}")
+        raise HTTPException(status_code=500, detail={"error": f"刷新失败: {e}", "code": "REFRESH_ALL_ERROR"})
+
+
+@router.get("/api/tokens/refresh-progress")
+async def get_refresh_progress(_: bool = Depends(verify_admin_session)) -> Dict[str, Any]:
+    """获取Token刷新进度"""
+    try:
+        progress = token_manager.get_refresh_progress()
+        return {"success": True, "data": progress}
+    except Exception as e:
+        logger.error(f"[Admin] 获取刷新进度异常: {e}")
+        raise HTTPException(status_code=500, detail={"error": f"获取进度失败: {e}"})

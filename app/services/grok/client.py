@@ -96,23 +96,41 @@ class GrokClient:
 
     @staticmethod
     def _extract_content(messages: List[Dict]) -> Tuple[str, List[str]]:
-        """提取文本和图片"""
-        texts, images = [], []
+        """提取文本和图片，保留角色结构"""
+        formatted_messages = []
+        images = []
+
+        # 角色映射
+        role_map = {
+            "system": "系统",
+            "user": "用户",
+            "assistant": "grok"
+        }
         
         for msg in messages:
+            role = msg.get("role", "user")
             content = msg.get("content", "")
+            role_prefix = role_map.get(role, role)
             
+            # 提取文本内容
+            text_parts = []
             if isinstance(content, list):
                 for item in content:
                     if item.get("type") == "text":
-                        texts.append(item.get("text", ""))
+                        text_parts.append(item.get("text", ""))
                     elif item.get("type") == "image_url":
                         if url := item.get("image_url", {}).get("url"):
                             images.append(url)
             else:
-                texts.append(content)
+                text_parts.append(content)
+            
+            # 合并该消息的文本并添加角色前缀
+            msg_text = "".join(text_parts).strip()
+            if msg_text:
+                formatted_messages.append(f"{role_prefix}：{msg_text}")
         
-        return "".join(texts), images
+        # 用换行符连接所有消息
+        return "\n".join(formatted_messages), images
 
     @staticmethod
     async def _upload(urls: List[str], token: str) -> Tuple[List[str], List[str]]:
@@ -317,6 +335,7 @@ class GrokClient:
                 msg = data[:200] if data else "未知错误"
         
         asyncio.create_task(token_manager.record_failure(token, response.status_code, msg))
+        asyncio.create_task(token_manager.apply_cooldown(token, response.status_code))
         raise GrokApiException(
             f"请求失败: {response.status_code} - {msg}",
             "HTTP_ERROR",

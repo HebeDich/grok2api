@@ -369,6 +369,15 @@
                 <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
               </svg>
             </button>
+            <button onclick="refreshAllTokens()" class="btn-icon" title="刷新所有Token剩余次数">
+              <svg class="h-4 w-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none"
+                stroke="currentColor" stroke-width="2">
+                <path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
+                <path d="M3 3v5h5" />
+                <path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16" />
+                <path d="M16 21h5v-5" />
+              </svg>
+            </button>
             <div id="batchActions" class="hidden items-center gap-2">
               <button onclick="exportSelected()" class="btn-icon" title="导出选中项">
                 <svg class="h-4 w-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none"
@@ -849,6 +858,61 @@
       filterTokens = () => { const tf = $('filterType').value, sf = $('filterStatus').value, tagf = $('filterTag').value; filteredTokens = allTokens.filter(t => (tf === 'all' || t.token_type === tf) && (sf === 'all' || t.status === sf) && (tagf === 'all' || t.tags && t.tags.includes(tagf))); selectedTokens.clear(); renderTokens() },
       loadAllTags = async () => { try { const r = await apiRequest('/api/tokens/tags/all'); if (!r) return; const d = await r.json(); if (d.success) { allTagsList = d.data; const tagFilter = $('filterTag'); const currentValue = tagFilter.value; tagFilter.innerHTML = '<option value="all">全部标签</option>' + allTagsList.map(tag => `<option value="${tag}">${tag}</option>`).join(''); tagFilter.value = currentValue } } catch (e) { console.error('加载标签列表失败:', e) } },
       refreshTokens = async () => { await loadTokens(); await loadStats() },
+      refreshAllTokens = async () => {
+        if (!confirm('确定要刷新所有Token的剩余次数吗？这可能需要一段时间...')) return;
+
+        try {
+          // 启动刷新任务
+          const r = await apiRequest('/api/tokens/refresh-all', { method: 'POST' });
+          if (!r) return;
+          const d = await r.json();
+
+          // 检查是否正在刷新
+          if (!d.success && d.data?.running) {
+            showToast('刷新任务正在进行中，请稍后再试', 'error');
+            return;
+          }
+
+          if (!d.success) {
+            showToast(d.message || '启动刷新失败', 'error');
+            return;
+          }
+
+          showToast('刷新任务已启动...', 'info');
+
+          // 等待一小段时间让后台任务启动
+          await new Promise(resolve => setTimeout(resolve, 300));
+
+          // 轮询进度直到完成
+          let lastProgress = null;
+          while (true) {
+            await new Promise(resolve => setTimeout(resolve, 500));
+            try {
+              const pr = await apiRequest('/api/tokens/refresh-progress');
+              if (!pr) break;
+              const pd = await pr.json();
+              if (pd.success && pd.data) {
+                const { current, total, success, failed, running } = pd.data;
+
+                if (!running) {
+                  // 刷新完成
+                  showToast(`刷新完成: 成功 ${success} 个, 失败 ${failed} 个`, 'success');
+                  break;
+                }
+
+                if (total > 0) {
+                  const pct = Math.round((current / total) * 100);
+                  showToast(`刷新进度: ${current}/${total} (${pct}%) | 成功: ${success} 失败: ${failed}`, 'info');
+                }
+              }
+            } catch (e) { break; }
+          }
+
+          await refreshTokens();
+        } catch (e) {
+          showToast('刷新失败: ' + e.message, 'error');
+        }
+      },
       openAddModal = () => $('addModal').classList.remove('hidden'),
       closeAddModal = () => { $('addModal').classList.add('hidden'); $('addTokenList').value = '' },
       deleteToken = async (t, tt) => { if (!confirm('确定要删除这个 Token 吗?')) return; try { const r = await apiRequest('/api/tokens/delete', { method: 'POST', body: JSON.stringify({ tokens: [t], token_type: tt }) }); if (!r) return; const d = await r.json(); d.success ? await refreshTokens() : showToast('删除失败: ' + (d.error || '未知错误'), 'error') } catch (e) { showToast('删除失败: ' + e.message, 'error') } },
