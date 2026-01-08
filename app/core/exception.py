@@ -48,11 +48,12 @@ GROK_TYPE_MAP = {
 class GrokApiException(Exception):
     """Grok API业务异常"""
 
-    def __init__(self, message: str, error_code: str = None, details: dict = None, context: dict = None):
+    def __init__(self, message: str, error_code: str = None, details: dict = None, context: dict = None, status_code: int = None):
         self.message = message
         self.error_code = error_code
         self.details = details or {}
         self.context = context or {}
+        self.status_code = status_code or GROK_STATUS_MAP.get(error_code)
         super().__init__(self.message)
 
 
